@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Xcode and SwiftPM
+build/
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Build and test output
+*.xcarchive
+*.xcresult
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Local credentials
+.env
+.env.*
+Local.xcconfig
+*.p12
+*.p8
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
