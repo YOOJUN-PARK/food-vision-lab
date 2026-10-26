@@ -60,3 +60,42 @@ enum AnalysisModel: String, CaseIterable, Codable, Identifiable {
         return error.localizedDescription
     }
 }
+
+enum AnalysisLevel: Int, CaseIterable, Identifiable {
+    case fast, balanced, accurate, cloud
+
+    static let dailyCloudLimit: Int? = nil
+
+    init(model: AnalysisModel, mode: MenuRecognitionMode) {
+        switch (model, mode) {
+        case (.claude, _): self = .cloud
+        case (.onDevice, .fast): self = .fast
+        case (.onDevice, .balanced): self = .balanced
+        case (.onDevice, .accurate): self = .accurate
+        }
+    }
+
+    var id: Self { self }
+
+    var model: AnalysisModel { self == .cloud ? .claude : .onDevice }
+
+    var mode: MenuRecognitionMode? {
+        switch self {
+        case .fast: .fast
+        case .balanced: .balanced
+        case .accurate: .accurate
+        case .cloud: nil
+        }
+    }
+
+    var name: String { mode?.name ?? "매우 정확" }
+
+    var symbol: String {
+        switch self {
+        case .fast: "gauge.with.dots.needle.33percent"
+        case .balanced: "gauge.with.dots.needle.50percent"
+        case .accurate: "gauge.with.dots.needle.67percent"
+        case .cloud: "gauge.with.dots.needle.100percent"
+        }
+    }
+}

@@ -25,31 +25,36 @@ public actor MenuRecognizer {
     private let namingInstructions: String
     private let options: GenerationOptions
     private let maximumImageSize: Int
+    private let mode: MenuRecognitionMode
     private var preparedSession: LanguageModelSession?
     private var preparedNamingSession: LanguageModelSession?
 
     public init(
         model: any LanguageModel = SystemLanguageModel.default,
-        instructions: String = MenuPrompts.onDevice,
-        namingInstructions: String = MenuPrompts.onDeviceNaming,
+        instructions: String? = nil,
+        namingInstructions: String? = nil,
         options: GenerationOptions = GenerationOptions(samplingMode: .greedy),
-        maximumImageSize: Int = 1024
+        maximumImageSize: Int = 1024,
+        mode: MenuRecognitionMode = .balanced
     ) {
         self.model = model
-        self.instructions = instructions
-        self.namingInstructions = namingInstructions
+        self.instructions = instructions ?? (mode == .fast ? MenuPrompts.fast : MenuPrompts.onDevice)
+        self.namingInstructions = namingInstructions ?? (mode == .accurate ? MenuPrompts.verifiedNaming : MenuPrompts.onDeviceNaming)
         self.options = options
         self.maximumImageSize = maximumImageSize
+        self.mode = mode
     }
 
     public func prewarm() {
         guard preparedSession == nil, (try? validateModel()) != nil else { return }
         let session = LanguageModelSession(model: model, instructions: instructions)
-        let naming = LanguageModelSession(model: model, instructions: namingInstructions)
         preparedSession = session
-        preparedNamingSession = naming
         session.prewarm()
-        naming.prewarm()
+        if mode != .fast {
+            let naming = LanguageModelSession(model: model, instructions: namingInstructions)
+            preparedNamingSession = naming
+            naming.prewarm()
+        }
     }
 
     public func recognize(
@@ -61,21 +66,55 @@ public actor MenuRecognizer {
         try validateModel()
         try Task.checkCancellation()
 
+        var requestOptions = options
+        if requestOptions.maximumResponseTokens == nil { requestOptions.maximumResponseTokens = 512 }
         let session = preparedSession ?? LanguageModelSession(model: model, instructions: instructions)
-        let naming = preparedNamingSession ?? LanguageModelSession(model: model, instructions: namingInstructions)
         preparedSession = nil
+        defer { if !Task.isCancelled { prewarm() } }
+        if mode == .fast {
+            let response = try await session.respond(generating: MenuPrediction.self, options: requestOptions) {
+                Attachment(image, orientation: .up)
+                "Identify the main food using a specific Korean menu name."
+            }
+            try Task.checkCancellation()
+            let prediction = response.content.removingDuplicateAlternatives()
+            if case let .identified(match) = prediction { await onName(match.name) }
+            return (prediction, session.usage)
+        }
+        let naming = preparedNamingSession ?? LanguageModelSession(model: model, instructions: namingInstructions)
         preparedNamingSession = nil
-        prewarm()
-        let identification = try await session.respond(generating: Identification.self, options: options) {
+        let identification = try await session.respond(generating: Identification.self, options: requestOptions) {
             Attachment(image, orientation: .up)
             "Name the dish, drink, or condiment at the center of this photo."
         }.content
         try Task.checkCancellation()
-        guard identification.name.lowercased() != "unknown" else {
+        if mode == .accurate {
+            let observation = LanguageModelSession(model: model, instructions: MenuPrompts.closeUp)
+            let rect = CGRect(x: CGFloat(image.width) * 0.125, y: CGFloat(image.height) * 0.125,
+                              width: CGFloat(image.width) * 0.75, height: CGFloat(image.height) * 0.75).integral
+            let detail = image.cropping(to: rect) ?? image
+            let description = try await observation.respond(generating: Identification.self, options: requestOptions) {
+                Attachment(detail, orientation: .up)
+                "Observe the main ingredient and preparation in this close-up, then name the food in English."
+            }.content
+            try Task.checkCancellation()
+            let result = try await naming.respond(generating: MenuPrediction.self, options: requestOptions) {
+                "First observation: \(identification.observation)"
+                "Close-up observation: \(description.observation)"
+                "Proposed name: \(identification.name)"
+                "Close-up name: \(description.name)"
+                "Other proposals: \(identification.alternatives.joined(separator: ", "))"
+            }
+            try Task.checkCancellation()
+            let prediction = result.content.removingDuplicateAlternatives()
+            if case let .identified(match) = prediction { await onName(match.name) }
+            return (prediction, session.usage + observation.usage + naming.usage)
+        }
+        guard identification.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "unknown" else {
             return (.unidentified(reason: "사진만으로는 어떤 음식인지 알기 어렵습니다."), session.usage)
         }
 
-        let stream = naming.streamResponse(generating: MenuPrediction.Match.self, options: options) {
+        let stream = naming.streamResponse(generating: MenuPrediction.Match.self, options: requestOptions) {
             "Name: \(identification.name)"
             "Other names: \(identification.alternatives.joined(separator: ", "))"
         }

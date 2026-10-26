@@ -76,27 +76,31 @@ final class RecognizerTests: XCTestCase {
 
     func testRejectsMissingImagesBeforeUsingModel() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
-        do {
-            _ = try await MenuRecognizer().recognize(imageURL: url)
-            XCTFail("Expected invalidImage")
-        } catch MenuRecognizer.Error.invalidImage {
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        for mode in MenuRecognitionMode.allCases {
+            do {
+                _ = try await MenuRecognizer(mode: mode).recognize(imageURL: url)
+                XCTFail("Expected invalidImage")
+            } catch MenuRecognizer.Error.invalidImage {
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
         }
     }
 
     func testCancelledRequestDoesNotReadImagesOrUseModel() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
-        let task = Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            return try await MenuRecognizer().recognize(imageURL: url)
-        }
-        do {
-            _ = try await task.value
-            XCTFail("Expected CancellationError")
-        } catch is CancellationError {
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        for mode in MenuRecognitionMode.allCases {
+            let task = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try await MenuRecognizer(mode: mode).recognize(imageURL: url)
+            }
+            do {
+                _ = try await task.value
+                XCTFail("Expected CancellationError")
+            } catch is CancellationError {
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
         }
     }
 

@@ -5,6 +5,7 @@
 //  Created by YOOJUN PARK on 10/25/26.
 //
 
+import MenuRecognition
 import SwiftUI
 import Vision
 
@@ -16,6 +17,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var quality: GenerateIterativeSegmentationRequest.QualityLevel
     @AppStorage("analysisModel") private var analysisModel = AnalysisModel.onDevice
+    @AppStorage("recognitionMode") private var recognitionMode = MenuRecognitionMode.balanced
 
     var body: some View {
         NavigationStack {
@@ -28,6 +30,15 @@ struct SettingsView: View {
                             }
                         } label: {
                             MenuValue(title: analysisModel.name)
+                        }
+                    }
+                    LabeledContent("Foundation Models 모드") {
+                        Menu {
+                            Picker("Foundation Models 모드", selection: $recognitionMode) {
+                                ForEach(MenuRecognitionMode.allCases) { Text($0.name).tag($0) }
+                            }
+                        } label: {
+                            MenuValue(title: recognitionMode.name)
                         }
                     }
                 } header: {

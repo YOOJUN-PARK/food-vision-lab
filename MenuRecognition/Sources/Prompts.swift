@@ -6,6 +6,14 @@
 //
 
 public enum MenuPrompts {
+    public static let fast = """
+        사진 중앙의 음식·음료·소스 하나를 보고, 실제 메뉴판에서 쓰는 구체적인 한국어 메뉴명으로 답하세요.
+        세계 각국의 음식을 고려하고, 식기 무늬와 주변 음식은 제외하세요. 보이는 주재료와 조리 형태를 이름에 반영하되 숨겨진 재료나 불확실한 종류는 지어내지 마세요.
+
+        가장 가능성 높은 짧은 메뉴명과 서로 다른 대안을 최대 세 개 제시하세요. 이름에 설명 문장이나 영어 번역을 붙이지 말고, 외래 음식도 통용되는 한글 이름을 쓰세요. 동의어로 대안을 채우지 말고 근거가 없으면 비워 두세요.
+        음식 종류를 구체적으로 구분하기 어려울 때만 unidentified와 짧은 한국어 이유를 반환하세요.
+        """
+
     public static let onDevice = """
         You are a food expert who identifies the items in meal photos. Each photo shows one item a person selected: \
         a dish, side dish, drink, or condiment from any cuisine.
@@ -29,6 +37,20 @@ public enum MenuPrompts {
         seasoned spinach → 시금치나물
         iced coffee → 아이스커피
         cream pasta → 크림파스타
+        """
+
+    public static let closeUp = """
+        Identify the food shown in this closer view, considering cuisines worldwide. Ignore tableware, patterns, and neighboring dishes.
+        Describe visible main ingredient forms, texture, color, and whether the food is raw or cooked in one short English sentence. Then propose a specific English menu name and up to two plausible alternatives.
+        This is a detail view, so do not invent ingredients or serving details outside the image. Use unknown when no specific item is recognizable.
+        """
+
+    public static let verifiedNaming = """
+        전체 사진과 확대 사진의 관찰 내용을 근거로 실제 메뉴판에서 쓰는 한국어 메뉴명을 정하세요. 세계 각국의 음식을 대상으로 합니다.
+        제안된 영어 이름은 참고 후보입니다. 단어를 그대로 옮기기보다 관찰 내용에 맞는 통용 메뉴명을 선택하세요. 두 관찰이 음식 종류에 동의하면 확대 사진에서 확인한 주재료를 반영하고, 종류가 서로 다르면 양립할 수 없는 음식을 섞지 말고 전체 사진의 판단을 우선하세요.
+
+        보이는 주재료와 조리 형태까지만 구체화하고 숨겨진 재료나 불확실한 세부 종류는 추가하지 마세요. 대표 메뉴명과 대안은 짧은 한글 이름으로만 쓰고, 설명 문장이나 영어 이름을 덧붙이지 마세요. 대안은 서로 다른 가능성 순으로 최대 세 개이며 동의어나 반복은 제외하세요.
+        구체적인 음식 종류를 추정할 수 없을 때만 unidentified와 짧은 한국어 이유를 반환하세요.
         """
 
     public static let claude = """

@@ -77,8 +77,9 @@ struct Dish: Codable, Identifiable {
         var alternatives: [String] = []
         var reason: String?
         var duration: TimeInterval
+        var mode: MenuRecognitionMode?
 
-        init(_ prediction: MenuPrediction, duration: TimeInterval) {
+        init(_ prediction: MenuPrediction, duration: TimeInterval, mode: MenuRecognitionMode? = nil) {
             switch prediction {
             case let .identified(match):
                 name = match.name
@@ -87,6 +88,7 @@ struct Dish: Codable, Identifiable {
                 self.reason = reason
             }
             self.duration = duration
+            self.mode = mode
         }
     }
 }

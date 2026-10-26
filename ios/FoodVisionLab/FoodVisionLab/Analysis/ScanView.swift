@@ -13,12 +13,15 @@ struct ScanView: View {
     let scan: Scan
     let analyzer: Analyzer
     let onOpenSettings: () -> Void
+    @AppStorage("recognitionMode") private var recognitionMode = MenuRecognitionMode.balanced
     @State private var model: AnalysisModel
     @State private var photo: UIImage?
     @State private var exportingCutout: Cutout?
     @State private var summary: AnalysisModel?
     @State private var rowFrames: [AnalysisModel: CGRect] = [:]
     @State private var tapLocation = CGPoint.zero
+    @AppStorage("cloudUsageDay") private var cloudUsageDay = 0.0
+    @AppStorage("cloudUsageCount") private var cloudUsageCount = 0
 
     init(scan: Scan, analyzer: Analyzer, model: AnalysisModel, onOpenSettings: @escaping () -> Void) {
         self.scan = scan
@@ -79,12 +82,16 @@ struct ScanView: View {
                     Text("음식 \(scan.dishes.count)개")
                     Spacer()
                     Menu {
-                        Picker("분석 모델", selection: $model) {
-                            ForEach(AnalysisModel.allCases) { Text($0.name).tag($0) }
+                        Section("Foundation Models") {
+                            ForEach([AnalysisLevel.fast, .balanced, .accurate]) { option($0) }
+                        }
+                        Section(AnalysisModel.claude.name) {
+                            option(.cloud, detail: "클라우드 · 오늘 \(cloudUsageDay == todayStart ? cloudUsageCount : 0)회 / \(AnalysisLevel.dailyCloudLimit.map { "\($0)회" } ?? "무한")")
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(model.name)
+                            Image(systemName: level.wrappedValue.symbol)
+                            Text(level.wrappedValue.name)
                             Image(systemName: "chevron.up.chevron.down")
                                 .imageScale(.small)
                         }
@@ -138,8 +145,9 @@ struct ScanView: View {
         .sheet(item: $exportingCutout) { CutoutExportView(cutout: $0) }
         .task {
             photo = UIImage(data: scan.photo)
-            await analyzer.prewarm()
         }
+        .task(id: recognitionMode) { await analyzer.prewarm(mode: recognitionMode) }
+        .sensoryFeedback(.selection, trigger: level.wrappedValue)
     }
 
     private func isAnalyzing(_ dish: Dish) -> Bool {
@@ -243,6 +251,12 @@ struct ScanView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
 
+            if model == .onDevice, let mode = result?.mode {
+                Section {
+                    LabeledContent("분석 모드", value: mode.name)
+                }
+            }
+
             if let failure = analyzer.failures[model]?[dish.id] {
                 Section("오류") { Text(failure) }
             } else if let reason = result?.reason {
@@ -277,10 +291,37 @@ struct ScanView: View {
         }
     }
 
+    private func option(_ option: AnalysisLevel, detail: String? = nil) -> some View {
+        Toggle(isOn: Binding { level.wrappedValue == option } set: { if $0 { level.wrappedValue = option } }) {
+            Label(option.name, systemImage: option.symbol)
+            if let detail { Text(detail) }
+        }
+    }
+
+    private var todayStart: Double { Calendar.current.startOfDay(for: .now).timeIntervalSinceReferenceDate }
+
+    private var level: Binding<AnalysisLevel> {
+        Binding {
+            AnalysisLevel(model: model, mode: recognitionMode)
+        } set: { level in
+            model = level.model
+            if let mode = level.mode { recognitionMode = mode }
+        }
+    }
+
     private func analyze(_ dishes: [Dish], with model: AnalysisModel) {
         self.model = model
-        guard let recognizer = analyzer.recognizer(for: model) else { return onOpenSettings() }
-        analyzer.analyze(dishes, in: scan, with: model, using: recognizer)
+        if model == .claude {
+            if cloudUsageDay != todayStart {
+                cloudUsageDay = todayStart
+                cloudUsageCount = 0
+            }
+            if let limit = AnalysisLevel.dailyCloudLimit, cloudUsageCount >= limit { return }
+        }
+        let mode = recognitionMode
+        guard let recognizer = analyzer.recognizer(for: model, mode: mode) else { return onOpenSettings() }
+        analyzer.analyze(dishes, in: scan, with: model, mode: mode, using: recognizer)
+        if model == .claude { cloudUsageCount += 1 }
     }
 }
 
@@ -321,9 +362,23 @@ struct AnalysisSummary: View {
         let identified = scan.dishes.filter { $0.results[model]?.name != nil }.count
         let usage = scan.usages[model]
         VStack(alignment: .leading, spacing: 16) {
-            Label(model.name, systemImage: "checkmark.circle.fill")
-                .font(.headline)
-                .foregroundStyle(Color(.success))
+            VStack(alignment: .leading, spacing: 4) {
+                Label(model.name, systemImage: "checkmark.circle.fill")
+                    .font(.headline)
+                    .foregroundStyle(Color(.success))
+                if model == .onDevice {
+                    let modes = Dictionary(grouping: scan.dishes.compactMap { $0.results[model] }) { $0.mode ?? .balanced }
+                    let used = MenuRecognitionMode.allCases.filter { modes[$0] != nil }
+                    if let main = used.max(by: { modes[$0]!.count < modes[$1]!.count }) {
+                        Label(
+                            "분석 수준 · " + used.map { used.count > 1 ? "\($0.name) \(modes[$0]!.count)개" : $0.name }.joined(separator: " · "),
+                            systemImage: AnalysisLevel(model: .onDevice, mode: main).symbol
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
             Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 16) {
                 GridRow {
                     stat("총 시간", seconds(duration))

@@ -23,7 +23,8 @@ final class Analyzer {
     private(set) var didFail = false
     private(set) var finishCount = 0
     private var task: Task<Void, Never>?
-    private let onDevice = MenuRecognizer()
+    private var onDevice = MenuRecognizer()
+    private var onDeviceMode = MenuRecognitionMode.balanced
 
     var isRunning: Bool { task != nil }
 
@@ -36,12 +37,13 @@ final class Analyzer {
         isRunning && self.scan === scan
     }
 
-    func recognizer(for model: AnalysisModel) -> MenuRecognizer? {
-        model == .onDevice ? onDevice : model.recognizer()
+    func recognizer(for model: AnalysisModel, mode: MenuRecognitionMode = .balanced) -> MenuRecognizer? {
+        model == .onDevice ? onDeviceRecognizer(for: mode) : model.recognizer()
     }
 
-    func prewarm() async {
-        await onDevice.prewarm()
+    func prewarm(mode: MenuRecognitionMode = .balanced) async {
+        guard !isRunning else { return }
+        await onDeviceRecognizer(for: mode).prewarm()
     }
 
     func cancel() {
@@ -49,8 +51,12 @@ final class Analyzer {
         task?.cancel()
     }
 
-    func analyze(_ dishes: [Dish], in scan: Scan, with model: AnalysisModel, using recognizer: MenuRecognizer) {
+    func analyze(
+        _ dishes: [Dish], in scan: Scan, with model: AnalysisModel,
+        mode: MenuRecognitionMode = .balanced, using recognizer: MenuRecognizer
+    ) {
         guard task == nil, let first = dishes.first else { return }
+        let recognizer = model == .onDevice ? onDeviceRecognizer(for: mode) : recognizer
         let inputs = dishes.map { MenuRecognizer.Input(id: $0.id, imageURL: scan.cutout(for: $0).cropURL) }
         self.scan = scan
         self.model = model
@@ -99,7 +105,10 @@ final class Analyzer {
                                 }
                             }
                             try Task.checkCancellation()
-                            save(result.prediction, for: input.id, in: scan, duration: ProcessInfo.processInfo.systemUptime - itemStart)
+                            save(
+                                result.prediction, for: input.id, in: scan,
+                                duration: ProcessInfo.processInfo.systemUptime - itemStart, mode: mode
+                            )
                             usage.add(result.usage)
                         } catch where !(error is CancellationError || Task.isCancelled) {
                             fail(input.id, in: scan, with: error)
@@ -126,9 +135,20 @@ final class Analyzer {
         }
     }
 
-    private func save(_ prediction: MenuPrediction, for id: UUID, in scan: Scan, duration: TimeInterval) {
+    private func onDeviceRecognizer(for mode: MenuRecognitionMode) -> MenuRecognizer {
+        if onDeviceMode != mode {
+            onDevice = MenuRecognizer(mode: mode)
+            onDeviceMode = mode
+        }
+        return onDevice
+    }
+
+    private func save(
+        _ prediction: MenuPrediction, for id: UUID, in scan: Scan,
+        duration: TimeInterval, mode: MenuRecognitionMode? = nil
+    ) {
         guard let index = scan.dishes.firstIndex(where: { $0.id == id }) else { return }
-        scan.dishes[index].results[model] = Dish.Result(prediction, duration: duration)
+        scan.dishes[index].results[model] = Dish.Result(prediction, duration: duration, mode: mode)
     }
 
     private func fail(_ id: UUID, in scan: Scan, with error: any Error) {
